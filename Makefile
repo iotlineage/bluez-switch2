@@ -72,8 +72,8 @@ $(PREPARE_STAMP): switch2.c switch2-pairing.h switch2-enrollment.inc switch2-bui
 		echo "error: unsupported BlueZ build layout (builtin_modules missing)" >&2; exit 1; }
 	@cp switch2.c "$(BLUEZ_DIR)/plugins/switch2.c"
 	@cp switch2-pairing.h switch2-enrollment.inc switch2-build.h "$(BLUEZ_DIR)/plugins/"
-	@grep -q '^src_bluetoothd_LDADD += -lcrypto$$' "$(BLUEZ_DIR)/Makefile.plugins" || \
-		printf '\nsrc_bluetoothd_LDADD += -lcrypto\n' >> "$(BLUEZ_DIR)/Makefile.plugins"
+	@grep -q '^builtin_ldadd += -lcrypto$$' "$(BLUEZ_DIR)/Makefile.plugins" || \
+		printf '\nbuiltin_ldadd += -lcrypto\n' >> "$(BLUEZ_DIR)/Makefile.plugins"
 	@if ! grep -q '^builtin_modules += switch2$$' "$(BLUEZ_DIR)/Makefile.plugins"; then \
 		printf '\n# Nintendo Joy-Con 2 BLE transport\nbuiltin_modules += switch2\nbuiltin_sources += plugins/switch2.c\n' \
 			>> "$(BLUEZ_DIR)/Makefile.plugins"; \
