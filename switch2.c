@@ -149,6 +149,10 @@ struct switch2_session {
 	guint transport_source;
 	unsigned int reply_notify_id;
 	unsigned int input_notify_id;
+	unsigned int battery_notify_id;
+	guint battery_stop_source;
+	bool battery_sampled;
+	guint battery_poll_source;
 	bool reply_notify_ready;
 	bool side_notify_ready;
 	bool kernel_command_seen;
@@ -758,6 +762,12 @@ static void switch2_stop_session(struct switch2_session *session)
 		return;
 
 	session->stopping = true;
+	if (session->battery_poll_source)
+		g_source_remove(session->battery_poll_source);
+	if (session->battery_stop_source)
+		g_source_remove(session->battery_stop_source);
+	if (session->battery_notify_id)
+		bt_gatt_client_unregister_notify(session->gatt, session->battery_notify_id);
 	if (session->enroll_timeout)
 		g_source_remove(session->enroll_timeout);
 	if (session->enroll_write_id)
@@ -1017,9 +1027,79 @@ static void switch2_side_notify(uint16_t value_handle, const uint8_t *value,
 }
 
 
+/* Firmware rejects reads of the side characteristic and prioritizes its CCC
+ * over common input. Sample exactly one native notification, then immediately
+ * disable side CCC again. Common stays subscribed throughout. */
+static gboolean switch2_battery_stop(gpointer user_data)
+{
+	struct switch2_session *session = user_data;
+
+	session->battery_stop_source = 0;
+	if (session->battery_notify_id) {
+		bt_gatt_client_unregister_notify(session->gatt,
+			session->battery_notify_id);
+		session->battery_notify_id = 0;
+	}
+	if (!session->battery_sampled)
+		DBG("switch2: battery sample timed out; restoring common-only input");
+	return G_SOURCE_REMOVE;
+}
+
+static void switch2_battery_notify(uint16_t handle, const uint8_t *value,
+                                  uint16_t length, void *user_data)
+{
+	struct switch2_session *session = user_data;
+
+	if (session->stopping || session->battery_sampled ||
+	    handle != session->handles.side_input || !value ||
+	    length != SWITCH2_INPUT_SIZE || ((value[1] >> 2) & 0x0f) > 9)
+		return;
+	session->battery_sampled = true;
+	if (switch2_transport_state(session, session->handles.report_id,
+	                           value, length) < 0)
+		DBG("switch2: could not forward battery sample");
+	else
+		DBG("switch2: battery sample level=%u charging=%u external_power=%u",
+		    (value[1] >> 2) & 0x0f, !!(value[1] & 2), !!(value[1] & 1));
+	if (session->battery_stop_source)
+		g_source_remove(session->battery_stop_source);
+	session->battery_stop_source = g_idle_add(switch2_battery_stop, session);
+}
+
+static void switch2_battery_registered(uint16_t att_ecode, void *user_data)
+{
+	struct switch2_session *session = user_data;
+
+	if (!att_ecode || session->stopping)
+		return;
+	DBG("switch2: battery subscription failed: 0x%02x", att_ecode);
+	if (session->battery_stop_source)
+		g_source_remove(session->battery_stop_source);
+	session->battery_stop_source = g_idle_add(switch2_battery_stop, session);
+}
+
+static gboolean switch2_battery_poll(gpointer user_data)
+{
+	struct switch2_session *session = user_data;
+
+	if (session->stopping)
+		return G_SOURCE_REMOVE;
+	if (!session->pending && !session->battery_notify_id && session->kernel_attached) {
+		session->battery_sampled = false;
+		session->battery_notify_id = bt_gatt_client_register_notify(session->gatt,
+			session->handles.side_input, switch2_battery_registered,
+			switch2_battery_notify, session, NULL);
+		if (session->battery_notify_id)
+			session->battery_stop_source = g_timeout_add(1000,
+				switch2_battery_stop, session);
+	}
+	return G_SOURCE_CONTINUE;
+}
+
 static void switch2_common_registered(uint16_t att_ecode, void *user_data)
 {
 	struct switch2_session *session = user_data;
+	gchar *capability = NULL;
 
 	if (att_ecode) {
 		error("switch2: %s common notification registration failed: 0x%02x",
@@ -1031,6 +1111,13 @@ static void switch2_common_registered(uint16_t att_ecode, void *user_data)
 	session->input_subscription = SWITCH2_INPUT_COMMON;
 	DBG("switch2: %s common notify ready handle=0x%04x",
 	    session->address, (unsigned int) SWITCH2_GATT_COMMON_VALUE);
+	if (g_file_get_contents("/sys/module/hid_switch2/parameters/native_battery",
+	                        &capability, NULL, NULL) && capability[0] == 'Y') {
+		/* Leave time for common input before the first battery-only sample. */
+		session->battery_poll_source = g_timeout_add_seconds(30,
+			switch2_battery_poll, session);
+	}
+	g_free(capability);
 }
 
 static void switch2_common_notify(uint16_t value_handle, const uint8_t *value,

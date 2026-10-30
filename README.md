@@ -280,3 +280,19 @@ GPL-2.0-or-later.
 ## Support
 
 This project is provided as-is. It is not actively developed or supported, and bug reports or feature requests are not currently accepted.
+# Native battery sampling
+
+With a kernel advertising `/sys/module/hid_switch2/parameters/native_battery=Y`,
+common input remains the main gamepad/gyro/mouse stream. Every 30 seconds the
+plugin temporarily enables native side notifications, forwards one valid battery
+sample, then disables side notifications immediately. A one-second timeout
+restores common-only input even if a valid sample never arrives. Disconnect
+cancels both timers and the temporary subscription. Older kernels retain the
+original common-only behavior.
+
+This sampling is necessary on tested Joy-Con 2 firmware: side CCC suppresses
+common reports when both are enabled, and reading the side characteristic
+returns ATT Read Not Permitted. The battery-capable kernel treats side samples
+as battery-only after common input begins. Sampling can create a brief common
+input gap; measure it on each controller/adapter combination before deployment.
+The kernel expires readings after 90 seconds if sampling stops working.
