@@ -65,12 +65,15 @@ $(FETCH_STAMP):
 
 prepare: $(PREPARE_STAMP)
 
-$(PREPARE_STAMP): switch2.c $(FETCH_STAMP)
+$(PREPARE_STAMP): switch2.c switch2-pairing.h switch2-enrollment.inc switch2-build.h $(FETCH_STAMP)
 	@test -f "$(BLUEZ_DIR)/Makefile.plugins" || { \
 		echo "error: BlueZ Makefile.plugins not found" >&2; exit 1; }
 	@grep -q '^builtin_modules[[:space:]]*=' "$(BLUEZ_DIR)/Makefile.am" || { \
 		echo "error: unsupported BlueZ build layout (builtin_modules missing)" >&2; exit 1; }
 	@cp switch2.c "$(BLUEZ_DIR)/plugins/switch2.c"
+	@cp switch2-pairing.h switch2-enrollment.inc switch2-build.h "$(BLUEZ_DIR)/plugins/"
+	@grep -q '^src_bluetoothd_LDADD += -lcrypto$$' "$(BLUEZ_DIR)/Makefile.plugins" || \
+		printf '\nsrc_bluetoothd_LDADD += -lcrypto\n' >> "$(BLUEZ_DIR)/Makefile.plugins"
 	@if ! grep -q '^builtin_modules += switch2$$' "$(BLUEZ_DIR)/Makefile.plugins"; then \
 		printf '\n# Nintendo Joy-Con 2 BLE transport\nbuiltin_modules += switch2\nbuiltin_sources += plugins/switch2.c\n' \
 			>> "$(BLUEZ_DIR)/Makefile.plugins"; \
@@ -90,6 +93,11 @@ build: $(CONFIGURE_STAMP)
 	@$(MAKE) -C "$(BLUEZ_DIR)" -j"$(JOBS)"
 
 check: build
+	$(CC) -Wall -Wextra -Werror -I. tests/test-pairing.c -lcrypto -o "$(BUILD_ROOT)/test-pairing"
+	"$(BUILD_ROOT)/test-pairing"
+	$(CC) -Wall -Wextra -Wno-format-truncation -I. $$(pkg-config --cflags glib-2.0) \
+		tests/test-enrollment.c -lcrypto $$(pkg-config --libs glib-2.0) -o "$(BUILD_ROOT)/test-enrollment"
+	@echo "Run the state-machine test in an isolated root/user namespace (it validates root-owned request files)."
 	@test -f "$(BLUEZ_DIR)/src/builtin.h" || { \
 		echo "error: BlueZ builtin plugin table was not generated" >&2; exit 1; }
 	@grep -q 'switch2' "$(BLUEZ_DIR)/src/builtin.h" || { \

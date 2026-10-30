@@ -1,5 +1,38 @@
 # BlueZ Joy-Con 2 transport
 
+## Experimental persistent enrollment fork
+
+Branch `codex/joycon2-reconnect` adds an opt-in Nintendo pairing transaction
+before attaching the existing linux-switch2 kernel driver. It is prepared for
+hardware testing; ordinary-button reconnection has not yet been demonstrated
+with this fork. OpenSSL libcrypto and its development headers are required.
+
+The normal SYNC/discovery path is unchanged unless a root-owned, mode-0600
+`switch2-enroll.request` exists in the selected device's BlueZ storage directory.
+Requests expire after five minutes and are consumed once. The plugin performs
+the bootstrap and `15/01`, `15/04`, `15/02`, `15/03` exchange on the measured
+side command endpoint, validates replies/challenge, and durably saves the key
+before controller commit. A one-address host list is used; its acceptance and
+the existing kernel preamble's interaction with stored pairing need hardware
+validation. No controller pairing-clear or raw flash-write commands are used.
+
+This first iteration deliberately imports the resulting key **with bluetoothd
+stopped**, using the ns-os guest helper, then restarts the daemon so normal BlueZ
+startup loads the entire adapter key list. Do not edit keys under a running
+daemon or load a one-device list over other saved keys. No BlueZ-core patch or
+kernel-driver fork is required for this experimental workflow.
+
+The ns-os integration supplies enrollment, diagnostics, versioned deployment and
+rollback. Do not create request files manually without that recovery/logging
+workflow. `switch2-enrollment` contains private recovery material; log messages
+only contain transaction identity, stage, lengths and failures. Packet captures
+can contain key material and must remain private. Restoring a binary does not
+restore the controller's previous console association.
+
+`tests/test-pairing.c` checks the captured crypto vector and packet validation;
+`tests/test-enrollment.c` exercises the actual enrollment state machine with
+fake GATT and real persistence/crypto, including failure paths.
+
 Bluetooth LE transport support for Nintendo Switch 2 Joy-Con controllers on Linux.
 
 This repository adds a Joy-Con 2 transport plugin directly to BlueZ and builds it as a **built-in `bluetoothd` plugin**.

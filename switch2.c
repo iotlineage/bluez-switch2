@@ -2,13 +2,13 @@
 /*
  * BlueZ - Nintendo Joy-Con 2 GATT transport plugin
  *
- * This plugin deliberately owns transport mechanics only.  It waits until
+ * This plugin owns transport mechanics and opt-in Nintendo enrollment. It waits until
  * BlueZ has completed ordinary GATT service resolution, identifies the
  * measured Joy-Con 2 service/characteristics, opens the switch2 kernel GATT
  * transport, and copies packets in both directions.
  *
  * Controller identity, initialization, decoding, compatibility devices and
- * rumble policy remain in the kernel. This plugin owns BLE/GATT mechanics only.
+ * rumble policy remain in the kernel. Enrollment finishes before kernel attach.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -25,6 +25,8 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <limits.h>
+#include <sys/stat.h>
 
 #include <glib.h>
 #include <glib-unix.h>
@@ -39,6 +41,9 @@
 #include "src/shared/att.h"
 #include "src/shared/gatt-client.h"
 #include "src/shared/gatt-db.h"
+#include "src/textfile.h"
+#include "switch2-pairing.h"
+#include "switch2-build.h"
 
 #define SWITCH2_SERVICE_UUID "ab7de9be-89fe-49ad-828f-118f09df7fd0"
 #define SWITCH2_COMMON_INPUT_UUID "ab7de9be-89fe-49ad-828f-118f09df7fd2"
@@ -158,6 +163,15 @@ struct switch2_session {
 	uint8_t pending_command;
 	uint8_t pending_transport;
 	uint8_t pending_subcommand;
+	bool enroll_checked;
+	bool enroll_active;
+	bool enroll_key_ready;
+	uint8_t enroll_step;
+	guint enroll_timeout;
+	unsigned int enroll_write_id;
+	uint8_t enroll_component[16];
+	uint8_t enroll_challenge[16];
+	uint8_t enroll_key[16];
 
 };
 
@@ -744,6 +758,13 @@ static void switch2_stop_session(struct switch2_session *session)
 		return;
 
 	session->stopping = true;
+	if (session->enroll_timeout)
+		g_source_remove(session->enroll_timeout);
+	if (session->enroll_write_id)
+		bt_gatt_client_cancel(session->gatt, session->enroll_write_id);
+	explicit_bzero(session->enroll_component, 16);
+	explicit_bzero(session->enroll_challenge, 16);
+	explicit_bzero(session->enroll_key, 16);
 	if (session->stop_source) {
 		g_source_remove(session->stop_source);
 		session->stop_source = 0;
@@ -808,6 +829,9 @@ static void switch2_schedule_stop(struct switch2_session *session)
 	session->stop_source = g_idle_add(switch2_stop_idle, session);
 }
 
+static void switch2_maybe_attach_kernel(struct switch2_session *session);
+#include "switch2-enrollment.inc"
+
 static void switch2_maybe_attach_kernel(struct switch2_session *session)
 {
 	int ret;
@@ -815,9 +839,12 @@ static void switch2_maybe_attach_kernel(struct switch2_session *session)
 	/* Successful reply/side CCC registration is the transport barrier.
 	 * Do not require the controller to emit an input packet before attaching
 	 * the kernel: initialization may itself be what starts that stream. */
-	if (!session || session->stopping || session->kernel_attached ||
+	if (!session || session->stopping || session->stop_source || session->kernel_attached ||
 	    session->transport_fd < 0 || !session->reply_notify_ready ||
 	    !session->side_notify_ready)
+		return;
+
+	if (switch2_enroll_begin(session))
 		return;
 
 	ret = switch2_transport_attach(session);
@@ -911,6 +938,10 @@ static void switch2_reply_notify(uint16_t value_handle, const uint8_t *value,
 	if (value_handle != session->handles.reply || !value || length < 4 ||
 	    length > SWITCH2_MAX_CONTROL)
 		return;
+	if (session->enroll_active) {
+		switch2_enroll_reply(session, value, length);
+		return;
+	}
 
 	/* Ignore unrelated housekeeping records; a kernel command is correlated by
 	 * command/transport/subcommand exactly as before. */
@@ -1343,6 +1374,7 @@ static struct btd_adapter_driver switch2_driver = {
 static int switch2_init(void)
 {
 	int ret;
+	info("switch2: build=%s enrollment=opt-in key-import=offline-restart", SWITCH2_BUILD_ID);
 
 	ret = btd_register_adapter_driver(&switch2_driver);
 	if (ret < 0)
