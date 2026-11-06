@@ -65,13 +65,16 @@ $(FETCH_STAMP):
 
 prepare: $(PREPARE_STAMP)
 
-$(PREPARE_STAMP): switch2.c switch2-pairing.h switch2-enrollment.inc switch2-build.h $(FETCH_STAMP)
+$(PREPARE_STAMP): switch2.c switch2-pairing.h switch2-live.inc switch2-build.h bluez-core/switch2-key-install.inc bluez-core/switch2-key-install.h patches/bluez-5.87-live-keys.patch $(FETCH_STAMP)
 	@test -f "$(BLUEZ_DIR)/Makefile.plugins" || { \
 		echo "error: BlueZ Makefile.plugins not found" >&2; exit 1; }
 	@grep -q '^builtin_modules[[:space:]]*=' "$(BLUEZ_DIR)/Makefile.am" || { \
 		echo "error: unsupported BlueZ build layout (builtin_modules missing)" >&2; exit 1; }
 	@cp switch2.c "$(BLUEZ_DIR)/plugins/switch2.c"
-	@cp switch2-pairing.h switch2-enrollment.inc switch2-build.h "$(BLUEZ_DIR)/plugins/"
+	@cp bluez-core/switch2-key-install.* "$(BLUEZ_DIR)/src/"
+	@grep -q '#include "switch2-key-install.inc"' "$(BLUEZ_DIR)/src/adapter.c" || \
+		patch -d "$(BLUEZ_DIR)" -p1 < patches/bluez-5.87-live-keys.patch
+	@cp switch2-pairing.h switch2-live.inc switch2-build.h "$(BLUEZ_DIR)/plugins/"
 	@grep -q '^builtin_ldadd += -lcrypto$$' "$(BLUEZ_DIR)/Makefile.plugins" || \
 		printf '\nbuiltin_ldadd += -lcrypto\n' >> "$(BLUEZ_DIR)/Makefile.plugins"
 	@if ! grep -q '^builtin_modules += switch2$$' "$(BLUEZ_DIR)/Makefile.plugins"; then \
@@ -93,6 +96,9 @@ build: $(CONFIGURE_STAMP)
 	@$(MAKE) -C "$(BLUEZ_DIR)" -j"$(JOBS)"
 
 check: build
+	bash tests/build-live-fixture.sh "$(BLUEZ_DIR)" "$(BUILD_ROOT)/test-live"
+	unshare --user --map-root-user dbus-run-session -- python3 tests/run-live.py "$(BUILD_ROOT)/test-live"
+	unshare --user --map-auto --map-root-user python3 tests/test-live-dbus.py "$(BUILD_ROOT)/test-live"
 	$(CC) -Wall -Wextra -Werror -I. tests/test-pairing.c -lcrypto -o "$(BUILD_ROOT)/test-pairing"
 	"$(BUILD_ROOT)/test-pairing"
 	$(CC) -Wall -Wextra -Wno-format-truncation -I. $$(pkg-config --cflags glib-2.0) \

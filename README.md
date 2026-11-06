@@ -1,37 +1,12 @@
 # BlueZ Joy-Con 2 transport
 
-## Experimental persistent enrollment fork
+## Live enrollment development fork
 
-Branch `codex/joycon2-reconnect` adds an opt-in Nintendo pairing transaction
-before attaching the existing linux-switch2 kernel driver. It is prepared for
-hardware testing; ordinary-button reconnection has not yet been demonstrated
-with this fork. OpenSSL libcrypto and its development headers are required.
-
-The normal SYNC/discovery path is unchanged unless a root-owned, mode-0600
-`switch2-enroll.request` exists in the selected device's BlueZ storage directory.
-Requests expire after five minutes and are consumed once. The plugin performs
-the bootstrap and `15/01`, `15/04`, `15/02`, `15/03` exchange on the measured
-side command endpoint, validates replies/challenge, and durably saves the key
-before controller commit. A one-address host list is used; its acceptance and
-the existing kernel preamble's interaction with stored pairing need hardware
-validation. No controller pairing-clear or raw flash-write commands are used.
-
-This first iteration deliberately imports the resulting key **with bluetoothd
-stopped**, using the ns-os guest helper, then restarts the daemon so normal BlueZ
-startup loads the entire adapter key list. Do not edit keys under a running
-daemon or load a one-device list over other saved keys. No BlueZ-core patch or
-kernel-driver fork is required for this experimental workflow.
-
-The ns-os integration supplies enrollment, diagnostics, versioned deployment and
-rollback. Do not create request files manually without that recovery/logging
-workflow. `switch2-enrollment` contains private recovery material; log messages
-only contain transaction identity, stage, lengths and failures. Packet captures
-can contain key material and must remain private. Restoring a binary does not
-restore the controller's previous console association.
-
-`tests/test-pairing.c` checks the captured crypto vector and packet validation;
-`tests/test-enrollment.c` exercises the actual enrollment state machine with
-fake GATT and real persistence/crypto, including failure paths.
+Branch `codex/joycon2-live-enrollment` implements the asynchronous authorized
+D-Bus provider and BlueZ core integration. See [API, recovery and testing](api/README.md).
+It requires the matching additive Bluetooth core patch for live enrollment.
+Both halves still need physical acceptance through this new API. Previously
+validated offline enrollment is a separate workflow retained only as reference.
 
 Bluetooth LE transport support for Nintendo Switch 2 Joy-Con controllers on Linux.
 
@@ -78,7 +53,8 @@ The default build currently uses the BlueZ `5.87` release tag:
 make
 ```
 
-A different BlueZ Git ref can be selected explicitly:
+The core patch is pinned to 5.87. A different ref requires reviewing and porting
+the patch; changing this number alone is not a supported upgrade:
 
 ```sh
 make BLUEZ_REF=5.88
@@ -226,7 +202,9 @@ Repeat this first-time discovery procedure for the other Joy-Con if required.
 
 ### Subsequent connections
 
-After a Joy-Con 2 has been discovered once, Bluetooth discovery is no longer necessary.
+After successful live enrollment, Bluetooth discovery is no longer necessary.
+Press an ordinary button to wake it. Discovery alone does not establish a durable
+association; the SYNC-only connection path below is for unregistered devices.
 
 To reconnect it later, simply press its **SYNC** button.
 

@@ -1,0 +1,43 @@
+diff --git a/src/adapter.c b/src/adapter.c
+index 538f63e..e2f9de2 100644
+--- a/src/adapter.c
++++ b/src/adapter.c
+@@ -11049,3 +11049,6 @@ unsigned int btd_adapter_send_cmd_event_sync(struct btd_adapter *adapter,
+ 				adapter->dev_id, sizeof(pkt.cp) + length,
+ 				&pkt, callback, user_data, destroy);
+ }
++
++/* ns-os additive live key activation; maintained in bluez-switch2. */
++#include "switch2-key-install.inc"
+diff --git a/src/shared/mgmt.c b/src/shared/mgmt.c
+index f56bcee..d46fa97 100644
+--- a/src/shared/mgmt.c
++++ b/src/shared/mgmt.c
+@@ -105,6 +105,7 @@ static void destroy_request(void *data)
+ 	if (request->timeout_id)
+ 		timeout_remove(request->timeout_id);
+ 
++	explicit_bzero(request->buf, request->len);
+ 	free(request->buf);
+ 	free(request);
+ }
+@@ -818,7 +819,8 @@ unsigned int mgmt_send_timeout(struct mgmt *mgmt, uint16_t opcode,
+ 	request->id = mgmt->next_request_id++;
+ 
+ 	if (!queue_push_tail(mgmt->request_queue, request)) {
+-		free(request->buf);
++		explicit_bzero(request->buf, request->len);
++	free(request->buf);
+ 		free(request);
+ 		return 0;
+ 	}
+@@ -886,7 +888,8 @@ unsigned int mgmt_reply_timeout(struct mgmt *mgmt, uint16_t opcode,
+ 	request->id = mgmt->next_request_id++;
+ 
+ 	if (!queue_push_tail(mgmt->reply_queue, request)) {
+-		free(request->buf);
++		explicit_bzero(request->buf, request->len);
++	free(request->buf);
+ 		free(request);
+ 		return 0;
+ 	}

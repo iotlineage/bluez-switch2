@@ -185,6 +185,10 @@ struct switch2_autoconnect {
 	char address[18];
 };
 
+static void s2_track(struct btd_adapter *, struct btd_device *);
+static void s2_removed(struct btd_device *);
+static void s2_observed(struct btd_adapter *, struct btd_device *, uint16_t);
+
 static GSList *sessions;
 static GSList *autoconnect_devices;
 
@@ -653,6 +657,8 @@ static void switch2_manufacturer_data(struct btd_adapter *adapter,
 	     product != SWITCH2_RIGHT_PRODUCT))
 		return;
 
+	s2_observed(adapter, device, product);
+
 	if (!switch2_prepare_gatt(device, product)) {
 		error("switch2: failed to seed fixed GATT cache for advertised JC2");
 		return;
@@ -840,7 +846,7 @@ static void switch2_schedule_stop(struct switch2_session *session)
 }
 
 static void switch2_maybe_attach_kernel(struct switch2_session *session);
-#include "switch2-enrollment.inc"
+#include "switch2-live.inc"
 
 static void switch2_maybe_attach_kernel(struct switch2_session *session)
 {
@@ -1299,6 +1305,7 @@ static void switch2_device_resolved(struct btd_adapter *adapter,
 	struct bt_gatt_client *gatt;
 	struct switch2_handles handles;
 
+	s2_track(adapter, device);
 	if (!switch2_find_handles(device, &handles))
 		return;
 
@@ -1380,6 +1387,7 @@ static void switch2_device_resolved(struct btd_adapter *adapter,
 static void switch2_device_added(struct btd_adapter *adapter,
 				 struct btd_device *device)
 {
+	s2_track(adapter, device);
 	switch2_autoconnect_consider(device, adapter);
 }
 
@@ -1388,6 +1396,7 @@ static void switch2_device_removed(struct btd_adapter *adapter,
 {
 	struct switch2_session *session = switch2_find_session(device);
 
+	s2_removed(device);
 	switch2_autoconnect_disable(adapter, device);
 
 	if (session)
@@ -1396,6 +1405,7 @@ static void switch2_device_removed(struct btd_adapter *adapter,
 
 static void switch2_disconnected(struct btd_device *device, uint8_t reason)
 {
+	s2_link_lost(device);
 	struct switch2_session *session = switch2_find_session(device);
 	struct switch2_autoconnect *entry = switch2_find_autoconnect(device);
 
@@ -1412,22 +1422,30 @@ static void switch2_disconnected(struct btd_device *device, uint8_t reason)
 		switch2_autoconnect_rearm(device);
 }
 
+static void s2_track_existing(struct btd_device *device, void *data)
+{ s2_track(data, device); }
+
 static int switch2_adapter_probe(struct btd_adapter *adapter)
 {
 	/* Discovery belongs to normal BlueZ clients (bluetoothctl/GUI). The
-	 * manufacturer callback observes those advertisements and enrolls any
-	 * previously unknown Joy-Con 2 without keeping discovery active here. */
+	 * manufacturer callback observes advertisements and connects candidate
+	 * Joy-Con 2 devices. Only the authorized API starts enrollment. */
+	btd_adapter_for_each_device(adapter, s2_track_existing, adapter);
 	btd_adapter_register_msd_cb(adapter, switch2_manufacturer_data);
 	btd_adapter_for_each_device(adapter, switch2_autoconnect_consider,
 				    adapter);
 	return 0;
 }
 
+static void s2_remove_existing(struct btd_device *device, void *unused)
+{ (void)unused; s2_removed(device); }
+
 static void switch2_adapter_remove(struct btd_adapter *adapter)
 {
 	GSList *l = sessions;
 
 	btd_adapter_unregister_msd_cb(adapter, switch2_manufacturer_data);
+	btd_adapter_for_each_device(adapter, s2_remove_existing, NULL);
 
 	while (l) {
 		GSList *next = l->next;
@@ -1461,7 +1479,8 @@ static struct btd_adapter_driver switch2_driver = {
 static int switch2_init(void)
 {
 	int ret;
-	info("switch2: build=%s enrollment=opt-in key-import=offline-restart", SWITCH2_BUILD_ID);
+	info("switch2: build=%s enrollment=live-v1 additive-kernel-key-required", SWITCH2_BUILD_ID);
+	if (!s2_init()) return -EIO;
 
 	ret = btd_register_adapter_driver(&switch2_driver);
 	if (ret < 0)
@@ -1473,6 +1492,7 @@ static int switch2_init(void)
 
 static void switch2_exit(void)
 {
+	s2_exit();
 	btd_remove_disconnect_cb(switch2_disconnected);
 	btd_unregister_adapter_driver(&switch2_driver);
 

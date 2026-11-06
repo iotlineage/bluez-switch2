@@ -1,0 +1,13 @@
+<node name="/org/bluez/ns_os/switch2">
+  <interface name="org.ns_os.Switch2Enrollment1">
+    <property name="ApiVersion" type="u" access="read"/>
+    <property name="InstanceId" type="s" access="read"/>
+    <property name="Capabilities" type="as" access="read"/>
+    <method name="GetDeviceStatus"><arg name="device" type="o" direction="in"/><arg name="status" type="a{sv}" direction="out"/></method>
+    <method name="StartEnrollment"><arg name="device" type="o" direction="in"/><arg name="request_id" type="s" direction="in"/><arg name="timeout_ms" type="u" direction="in"/><arg name="operation" type="o" direction="out"/></method>
+    <method name="Cancel"><arg name="operation" type="o" direction="in"/></method>
+    <method name="GetOperation"><arg name="operation" type="o" direction="in"/><arg name="state" type="a{sv}" direction="out"/></method>
+    <method name="ListOperations"><arg name="operations" type="ao" direction="out"/></method>
+    <signal name="OperationChanged"><arg name="operation" type="o"/><arg name="state" type="a{sv}"/></signal>
+  </interface>
+</node>
