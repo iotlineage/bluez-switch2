@@ -153,7 +153,10 @@ static void s2_fail(struct s2_operation *op, const char *code)
 {
     struct switch2_session *s = switch2_find_session(op->target->device);
     s2_finish(op, "failed", code);
-    if (s && !op->active) switch2_schedule_stop(s);
+    if (s && !op->active) {
+        switch2_schedule_stop(s);
+        device_request_disconnect(op->target->device,NULL);
+    }
 }
 
 /* Each bounded job owns immutable input. Only main-context completion touches
@@ -565,7 +568,10 @@ static void s2_cancel(struct s2_operation *op)
     if (op->transmitted || op->io_pending) return;
     struct switch2_session *s = switch2_find_session(op->target->device);
     s2_finish(op, "cancelled", NULL);
-    if (s) switch2_schedule_stop(s);
+    if (s) {
+        switch2_schedule_stop(s);
+        device_request_disconnect(op->target->device,NULL);
+    }
 }
 static void s2_owner_gone(DBusConnection *conn, void *data)
 {
@@ -598,7 +604,10 @@ static gboolean s2_tick(void *unused)
         if (!op->terminal && now >= op->deadline) {
             struct switch2_session *s = switch2_find_session(op->target->device);
             s2_finish(op, "timed_out", "Timeout");
-            if (s && !op->io_pending) switch2_schedule_stop(s);
+            if (s && !op->io_pending) {
+                switch2_schedule_stop(s);
+                device_request_disconnect(op->target->device,NULL);
+            }
         }
         if (op->terminal && !op->io_pending && now - op->finished >= S2_RETAIN_MS) {
             s2_operations = g_slist_remove(s2_operations, op); s2_op_free(op);
