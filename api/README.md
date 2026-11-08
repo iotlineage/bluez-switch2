@@ -121,3 +121,11 @@ wireless-controller/audio/USB input, adapter removal and later Menu/game tests.
 Kernel core module loading/ABI and recovery under real adapters also need host
 validation. The controller-service consumer and its dedicated UID deployment are
 separate work; this provider patch alone does not enable Menu's Register button.
+
+The packaged client emits one JSON object per line, including the provider
+instance, public status, request ID and operation revisions. `--list` shows
+already discovered Nintendo candidates without scanning or writing a bond.
+`--operation PATH` reads a retained result. `--start` polls as well as subscribing
+before its baseline, exits nonzero on failure, pins the daemon owner, and waits
+for reconciliation after Ctrl-C. A lost start reply is never retried automatically.
+No debug logging is needed for these public diagnostics.
