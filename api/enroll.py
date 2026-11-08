@@ -9,7 +9,7 @@ import uuid
 
 import dbus
 from dbus.mainloop.glib import DBusGMainLoop
-from gi.repository import GLib
+from gi.repository import GLib, GLibUnix
 
 PATH = '/org/bluez/ns_os/switch2'
 IFACE = 'org.ns_os.Switch2Enrollment1'
@@ -125,8 +125,8 @@ def main():
                 emit('error', {'Error': exc.get_dbus_name(), 'Operation': operation})
         return GLib.SOURCE_CONTINUE
 
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, cancel)
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, cancel)
+    GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, cancel)
+    GLibUnix.signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, cancel)
     poll()
     if outcome is None:
         GLib.timeout_add(500, poll)

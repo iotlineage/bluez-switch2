@@ -2,6 +2,7 @@
 """Private bus + actual provider with fake transports. Run in a user namespace."""
 import json
 import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -130,7 +131,47 @@ else: raise AssertionError('unrelated user was authorized')
 
         finally:
             proc.terminate(); proc.wait(timeout=5)
+    # Run the packaged client against the actual provider on this private bus.
+    client = Path(__file__).resolve().parents[1] / 'api/enroll.py'
+    env = dict(os.environ, DBUS_SYSTEM_BUS_ADDRESS=address)
+    for mode in ('', 'hold'):
+        with tempfile.TemporaryDirectory() as root:
+            proc = server(root, mode)
+            try:
+                command = [sys.executable, str(client), LEFT, '--start', '--timeout-ms', '3000']
+                if mode == 'hold':
+                    child = subprocess.Popen(command, env=env, stdout=subprocess.PIPE, text=True)
+                    lines = []
+                    while True:
+                        line = child.stdout.readline()
+                        assert line, 'client exited before its operation baseline'
+                        lines.append(line)
+                        if json.loads(line)['kind'] == 'operation':
+                            break
+                    child.send_signal(signal.SIGINT)
+                    rest, _ = child.communicate(timeout=5)
+                    states = [json.loads(line) for line in (''.join(lines) + rest).splitlines()]
+                    assert child.returncode == 1
+                    assert states[-1]['Phase'] == 'cancelled' and states[-1]['CancelRequested']
+                else:
+                    result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=5)
+                    assert result.returncode == 0, result.stderr + result.stdout
+                    states = [json.loads(line) for line in result.stdout.splitlines()]
+                    assert states[-1]['Phase'] == 'succeeded'
+                    assert all(states[-1][k] is True for k in ('ControllerAcknowledged', 'AssociationDurable', 'AssociationActive'))
+                    readback = subprocess.run([sys.executable, str(client), '--operation', states[-1]['Operation']],
+                                              env=env, capture_output=True, text=True, timeout=5)
+                    assert readback.returncode == 0, readback.stderr
+                    assert json.loads(readback.stdout.splitlines()[-1])['Phase'] == 'succeeded'
+                for journal in Path(root).rglob('switch2-association'):
+                    for line in journal.read_text().splitlines():
+                        if line.startswith('KeyLE=') and len(line) == 38:
+                            key = line[6:].lower()
+                            public = json.dumps(states).lower()
+                            assert key not in public and bytes.fromhex(key)[::-1].hex() not in public
+            finally:
+                proc.terminate(); proc.wait(timeout=5)
     print(json.dumps({'passed': True, 'private_bus': True, 'hardware': False,
-        'checks': ['introspection', 'status', 'async-start', 'deduplication', 'revision-signals', 'owner-only-cancel', 'owner-loss', 'retention-capacity', 'method-authorization', 'instance-replacement', 'public-secret-redaction', 'live-success']}))
+        'checks': ['introspection', 'status', 'async-start', 'deduplication', 'revision-signals', 'owner-only-cancel', 'owner-loss', 'retention-capacity', 'method-authorization', 'instance-replacement', 'public-secret-redaction', 'live-success', 'client-json', 'client-readback', 'client-cancellation']}))
 finally:
     broker.terminate(); broker.wait(timeout=5)
