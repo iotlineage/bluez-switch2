@@ -129,3 +129,9 @@ already discovered Nintendo candidates without scanning or writing a bond.
 before its baseline, exits nonzero on failure, pins the daemon owner, and waits
 for reconciliation after Ctrl-C. A lost start reply is never retried automatically.
 No debug logging is needed for these public diagnostics.
+
+Recognized Joy-Con 2 devices receive model names `Joy-Con 2 (L)` / `Joy-Con 2 (R)`
+and GAP Gamepad appearance (0x03c4), which BlueZ exposes as `input-gaming`.
+Existing custom aliases are preserved. Metadata is refreshed on stored-device
+load, validated manufacturer observation, and resolved GATT identity. This changes
+presentation, not the peer address, association or enrollment protocol.

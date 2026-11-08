@@ -1330,6 +1330,7 @@ static void switch2_device_resolved(struct btd_adapter *adapter,
 	btd_device_set_temporary(device, false);
 	btd_device_set_pnpid(device, 0x0002, SWITCH2_VENDOR,
 			       handles.product, 0x0000);
+	s2_update_device_metadata(device);
 
 	session = g_new0(struct switch2_session, 1);
 	session->adapter = adapter;

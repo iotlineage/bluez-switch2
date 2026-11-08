@@ -24,7 +24,7 @@
 #define SWITCH2_LEFT_PRODUCT 0x2067
 #define SWITCH2_RIGHT_PRODUCT 0x2066
 struct btd_adapter { bdaddr_t address; };
-struct btd_device { struct btd_adapter *adapter; bdaddr_t address; uint16_t product; bool connected,bonded; };
+struct btd_device { struct btd_adapter *adapter; bdaddr_t address; uint16_t product, appearance; char name[32]; bool connected,bonded; };
 struct switch2_handles { int unused; };
 struct switch2_session {
     struct btd_device *device;
@@ -67,6 +67,8 @@ void device_set_bonded(struct btd_device *d,uint8_t type) {(void)type;d->bonded=
 void device_set_ltk(struct btd_device *d,const uint8_t key[16],bool central,uint8_t enc_size) {(void)d;(void)key;assert(central&&enc_size==16);}
 void btd_device_set_trusted(struct btd_device *d,gboolean trusted) {(void)d;assert(trusted);}
 void btd_device_set_pnpid(struct btd_device *d,uint16_t source,uint16_t vendor,uint16_t product,uint16_t version) {(void)source;(void)vendor;(void)version;d->product=product;}
+void btd_device_device_set_name(struct btd_device *d,const char *name) {snprintf(d->name,sizeof(d->name),"%s",name);}
+void device_set_appearance(struct btd_device *d,uint16_t appearance) {d->appearance=appearance;}
 static struct switch2_session *switch2_find_session(struct btd_device *d) {return d->product==SWITCH2_LEFT_PRODUCT?&fake_sessions[0]:&fake_sessions[1];}
 static void switch2_schedule_stop(struct switch2_session *s) {s->stop_source=1;}
 static void switch2_stop_session(struct switch2_session *s) {s->kernel_attached=false;}
@@ -183,6 +185,8 @@ int main(int argc,char **argv) {
         assert(!g_mkdir_with_parents(folder,0700));g_free(folder);
         fake_sessions[i]=(struct switch2_session){.device=&devices[i],.adapter=&adapter,.reply_notify_ready=true,.side_notify_ready=true};
         fake_sessions[i].gatt=&fake_sessions[i];s2_observed(&adapter,&devices[i],devices[i].product);
+        assert(!strcmp(devices[i].name,i?"Joy-Con 2 (R)":"Joy-Con 2 (L)"));
+        assert(devices[i].appearance==0x03c4);
     }
     mode=getenv("S2_FIXTURE_MODE");activation_failure=mode&&!strcmp(mode,"activation-failure");
     g_timeout_add(5,simulated_input,NULL);

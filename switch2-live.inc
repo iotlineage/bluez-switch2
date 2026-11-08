@@ -413,11 +413,26 @@ static void s2_probed(int error, void *data)
     d->capability = !error;
     if (!d->removed && !s2_exiting) s2_recover(d);
 }
+/* Verified Nintendo PnP metadata, never a display-name heuristic. Name is the
+ * model default; BlueZ keeps a user's explicit Alias when Name changes. */
+static void s2_update_device_metadata(struct btd_device *device)
+{
+    uint16_t product = btd_device_get_product(device);
+    if (btd_device_get_vendor(device) != SWITCH2_VENDOR ||
+        (product != SWITCH2_LEFT_PRODUCT && product != SWITCH2_RIGHT_PRODUCT))
+        return;
+    btd_device_device_set_name(device, product == SWITCH2_LEFT_PRODUCT ?
+                              "Joy-Con 2 (L)" : "Joy-Con 2 (R)");
+    /* Bluetooth GAP HID Gamepad (0x03c4), also maps to input-gaming in BlueZ. */
+    device_set_appearance(device, 0x03c4);
+}
+
 static void s2_track(struct btd_adapter *adapter, struct btd_device *device)
 {
     struct s2_device *d;
     char path[PATH_MAX];
     if (s2_find(device) || s2_exiting) return;
+    s2_update_device_metadata(device);
     d = g_new0(struct s2_device, 1);
     d->refs = 1; d->loading = true; d->directory_fd=-1;
     d->device = btd_device_ref(device); d->adapter = btd_adapter_ref(adapter);
@@ -840,6 +855,7 @@ static void s2_observed(struct btd_adapter *adapter, struct btd_device *device, 
     if (d) {
         d->observed=true;
         btd_device_set_pnpid(device,2,SWITCH2_VENDOR,product,0);
+        s2_update_device_metadata(device);
     }
 }
 
